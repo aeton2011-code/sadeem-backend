@@ -1,59 +1,62 @@
 // api/analyze-store.js
 
+const fetch = require("node-fetch");
+
 module.exports = async (req, res) => {
+  // نسمح فقط بالـ POST
   if (req.method !== "POST") {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
   let body = req.body;
   if (typeof body === "string") {
-    try { body = JSON.parse(body); } catch {
+    try {
+      body = JSON.parse(body);
+    } catch (e) {
       return res.status(400).json({ ok: false, error: "Invalid JSON" });
     }
   }
 
   const url = body?.url;
   if (!url) {
-    return res.status(400).json({ ok: false, error: "URL is required" });
+    return res.status(400).json({ ok: false, error: "Missing URL" });
   }
 
-  const PSI_KEY = process.env.GEMINI_API_KEY;
-  if (!PSI_KEY) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
     return res.status(500).json({ ok: false, error: "Missing GEMINI_API_KEY" });
   }
 
   try {
-    // طلب PageSpeed Insights للحصول على screenshot + lighthouse + DOM
-    const psiRes = await fetch(
-      `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&screenshot=true&strategy=mobile&key=${PSI_KEY}`
+    // 1️⃣ نطلب Screenshot من Browserless (رهيبين ومجاني)
+    const screenshot = await fetch(
+      "https://chrome.browserless.io/screenshot?token=demo", // free public demo token
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url,
+          options: {
+            fullPage: true,
+            waitFor: "networkidle2"
+          }
+        })
+      }
     );
 
-    const psiJson = await psiRes.json();
+    const base64Image = await screenshot.text(); // Browserless يرجع Base64 مباشر
 
-    const screenshot =
-      psiJson?.lighthouseResult?.audits?.["final-screenshot"]?.details?.data || null;
+    // 2️⃣ نرسل الصورة لـ Gemini
+    const prompt = `
+      أنت خبير تحسين متاجر إلكترونية (CRO + UX + تسويق).
+      حلّل صفحة المتجر من حيث وضوح العرض، الثقة، تجربة المستخدم،
+      الـ CTA، سرعة الفهم، العناصر المشتتة.
+      أرجع النتيجة بصيغة JSON نصّي يحتوي:
+      summary, issues, recommendations, seo_score, ux_score, trust_score.
+    `;
 
-    const lighthouse = psiJson?.lighthouseResult || {};
-
-    // نرسل للـ Gemini تحليل مع screenshot
-    const geminiPrompt = `
-أنت خبير CRO و UX وتجربة مستخدم.
-حلل هذا المتجر بناءً على البيانات التالية:
-- أداء الموقع
-- Screenshot
-- Lighthouse Audits
-- المشاكل التقنية
-- وضوح العرض
-- الثقة
-- الـ CTA
-- سهولة الشراء
-
-أعطني النتيجة بصيغة JSON تحتوي فقط:
-summary, issues, recommendations, ux_score, trust_score, performance_score
-`;
-
-    const geminiReq = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${PSI_KEY}`,
+    const geminiResponse = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=" + apiKey,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -62,11 +65,13 @@ summary, issues, recommendations, ux_score, trust_score, performance_score
             {
               role: "user",
               parts: [
-                { text: geminiPrompt },
-                screenshot
-                  ? { inline_data: { mime_type: "image/jpeg", data: screenshot.split(",")[1] } }
-                  : { text: "No screenshot available" },
-                { text: JSON.stringify(lighthouse).slice(0, 20000) }
+                { text: prompt },
+                {
+                  inline_data: {
+                    mime_type: "image/png",
+                    data: base64Image.replace("data:image/png;base64,", "")
+                  }
+                }
               ]
             }
           ]
@@ -74,21 +79,19 @@ summary, issues, recommendations, ux_score, trust_score, performance_score
       }
     );
 
-    const geminiJson = await geminiReq.json();
-
-    const analysis =
-      geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || "No output";
+    const geminiJson = await geminiResponse.json();
+    const text =
+      geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || "No output.";
 
     return res.status(200).json({
       ok: true,
-      analysis,
-      raw_lighthouse: lighthouse
+      analysis_text: text,
+      raw: geminiJson
     });
-
-  } catch (err) {
+  } catch (error) {
     return res.status(500).json({
       ok: false,
-      error: err.message
+      error: error.message
     });
   }
 };
