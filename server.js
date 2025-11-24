@@ -1,8 +1,8 @@
 const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
-const playwright = require("@playwright/browser-chromium");
-const chromium = playwright.chromium;
+const { chromium } = require("playwright");
+
 
 
 const app = express();
