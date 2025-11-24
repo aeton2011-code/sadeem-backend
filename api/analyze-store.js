@@ -7,12 +7,10 @@ const puppeteer = require("puppeteer-core");
  * body: { "url": "https://example.com" }
  */
 module.exports = async (req, res) => {
-  // نسمح فقط بالـ POST
   if (req.method !== "POST") {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  // نحاول نقرأ البودي (سواء جاه كـ object أو string)
   let body = req.body;
   if (typeof body === "string") {
     try {
@@ -35,7 +33,7 @@ module.exports = async (req, res) => {
   let browser;
 
   try {
-    // تشغيل Puppeteer على Vercel (باستخدام @sparticuz/chromium)
+    // تشغيل Chromium على Vercel
     browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
@@ -61,14 +59,24 @@ module.exports = async (req, res) => {
 
     const base64Image = screenshotBuffer.toString("base64");
 
-    // نرسل الصورة لـ Gemini
-    const prompt =
-      "أنت خبير تحسين متاجر إلكترونية (CRO + UX + تسويق). "\
-      + "حلّل صفحة المتجر من حيث: وضوح العرض، الثقة، تجربة المستخدم، "\
-      + "الـ CTA، سرعة الفهم، العناصر المشتتة، واقترح تحسينات عملية. "\
-      + "أرسل النتيجة كـ JSON نصّي بالمفاتيح التالية فقط: "
-      + "summary, issues, recommendations, seo_score, ux_score, trust_score.";
+    // ====== PROMPT بدون Backslash نهائيًا ======
+    const prompt = `
+أنت خبير تحسين متاجر إلكترونية (CRO + UX + تسويق).
+حلّل صفحة المتجر بدقة من حيث:
+- وضوح العرض
+- الثقة
+- تجربة المستخدم UX
+- قابلية الفهم السريع
+- جودة عرض المنتجات
+- CTA والعوامل المقنعة
+- العناصر المشتتة أو الضعيفة
+- مشاكل السرعة والأداء الظاهرة
 
+قدّم لي النتيجة في JSON نصّي يحتوي فقط على المفاتيح التالية:
+summary, issues, recommendations, seo_score, ux_score, trust_score
+    `.trim();
+
+    // ====== استدعاء Gemini ======
     const geminiResponse = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/" +
         "gemini-1.5-flash-latest:generateContent?key=" +
@@ -96,11 +104,9 @@ module.exports = async (req, res) => {
     );
 
     const geminiJson = await geminiResponse.json();
-
     const text =
       geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-    // نرجع النص الخام، وأنت في سديم بعدين تفسره أو تحوله JSON حقيقي
     return res.status(200).json({
       ok: true,
       analysis_text: text,
@@ -111,7 +117,7 @@ module.exports = async (req, res) => {
     if (browser) {
       try {
         await browser.close();
-      } catch (e) {}
+      } catch (_) {}
     }
     return res.status(500).json({
       ok: false,
