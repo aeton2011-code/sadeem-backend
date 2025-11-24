@@ -1,13 +1,16 @@
 {
-  "name": "sadeem-puppeteer-backend",
+  "name": "store-analyzer-backend",
   "version": "1.0.0",
-  "main": "server.js",
+  "main": "index.js",
+  "type": "commonjs",
   "scripts": {
-    "start": "node server.js"
+    "start": "node index.js",
+    "build": "echo 'No build needed'"
   },
   "dependencies": {
-    "express": "^4.19.0",
-    "puppeteer": "^21.7.0",
-    "cors": "^2.8.5"
+    "express": "^4.18.2",
+    "puppeteer": "^21.6.0",
+    "cors": "^2.8.5",
+    "body-parser": "^1.20.2"
   }
 }
